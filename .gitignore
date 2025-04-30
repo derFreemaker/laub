@@ -1,0 +1,8 @@
+# build files
+.zig-cache
+zig-out
+
+# editor files
+.idea
+.vscode
+.zed

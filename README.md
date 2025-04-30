@@ -11,3 +11,4 @@ It is also not meant as an generator more like a interface which than can be com
 generator to create [ninja](https://ninja-build.org) files for example.
 It so manages the overview of an project, but not the details like building or linking.
 Leaving the freedom for a custom implementation, making it possible to combine what ever you want.
+So technicaly we it is just fancy glue to combine multiple toolchains and languages and manage them from a central point.

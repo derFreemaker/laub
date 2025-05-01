@@ -1,11 +1,10 @@
-
-<br />
+<br>
 <div align="center">
-  <img src="./logo/detail_edit.png" height=384 width=1024 alt="Laub Logo"/>
+  <img src="./logo/detail_edit.png" alt="Laub Logo" style="height:auto; width:80%;"/>
 </div>
-<br />
 
-# \[WIP\]
+![](https://img.shields.io/badge/-Work%20in%20Progress-f00?style=for-the-badge)
+
 Laub is a lua based project utility designed to simplify the process of managing projects.
 It provides a flexible and powerful framework for automating tasks such as compiling, packaging, and testing.
 It does NOT replace existing tools.

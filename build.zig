@@ -1,14 +1,32 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const exe = b.addExecutable(.{
-        .name = "laub",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.graph.host,
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const zlua = b.dependency("zlua", .{
+        .target = target,
+        .optimize = optimize,
     });
 
-    const ziglua = b.dependency("ziglua", .{});
-    exe.root_module.addImport("zlua", ziglua.module("ziglua"));
-    
-    b.installArtifact(exe);
+    const laub = b.addModule("laub", .{
+        .target = target,
+        .optimize = optimize,
+
+        .root_source_file = b.path("src/laub.zig"),
+    });
+    laub.addImport("zlua", zlua.module("zlua"));
+
+    const laub_driver = b.addModule("laub_driver", .{
+        .target = target,
+        .optimize = optimize,
+        
+        .root_source_file = b.path("src/driver/main.zig"),
+    });
+    laub_driver.addImport("laub", laub);
+
+    b.installArtifact(b.addExecutable(.{
+        .name = "laub_driver",
+        .root_module = laub_driver,
+    }));
 }

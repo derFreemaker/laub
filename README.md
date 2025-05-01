@@ -1,19 +1,20 @@
 
 <br />
-<p align="center">
-  <img src="./logo/laub.png" height="300" />
+<p style="align-content: center;">
+  <img src="./logo/detail_edit.png" height=500 alt="Laub Logo"/>
 </p>
 <br />
 
-# [WIP]
+# \[WIP\]
 Laub is a lua based project utility designed to simplify the process of managing projects.
 It provides a flexible and powerful framework for automating tasks such as compiling, packaging, and testing.
+It does NOT replace existing tools.
+It is meant as a project manager which tells other tools what to do.
 
-## Why Laub
-Difference to [xmake](https://xmake.io) for example is the configuration approach instead of defining
-your targets in a list kind of manner. The goal is to make it more [cmake](https://cmake.org) like.
-It is also not meant as a generator more like an interface which than can be combined with a
-generator to create [ninja](https://ninja-build.org) files for example.
-It so manages the overview of a project, but not the details like building or linking.
-Leaving the freedom for a custom implementation, making it possible to combine what ever you want.
-So technically it is just fancy glue to combine multiple toolchains and languages and manage them from a central point.
+## Name Origin
+The Laub project utility tool derives its name from the German word "Laub" for a stack of leaves.
+This name reflects the tool's purpose: managing the many different tools and components (leaves) that make up a modern software project.
+While the project name retains its German origin, all other terminology uses standard English to ensure accessibility and ease of use for the international developer community.
+
+## Disclaimer
+This Project is very ambitious and therefore will need time to evolve.

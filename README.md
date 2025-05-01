@@ -1,6 +1,6 @@
 
 <br />
-<div style="display:flex;justify-content: center;">
+<div style="display:flex;justify-content: center;align-items: center;">
   <img src="./logo/detail_edit.png" height=500 alt="Laub Logo"/>
 </div>
 <br />

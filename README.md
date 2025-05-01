@@ -1,8 +1,8 @@
 
 <br />
-<p style="align-content: center;">
+<div style="display:flex;justify-content: center;">
   <img src="./logo/detail_edit.png" height=500 alt="Laub Logo"/>
-</p>
+</div>
 <br />
 
 # \[WIP\]

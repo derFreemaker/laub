@@ -18,9 +18,9 @@ keeping the overhead smaller this tool introduces.
 Or just interact with other tools directly instead over the command line.
 
 ## Name Origin
-The Laub project utility tool derives its name from the German word "Laub" for a stack of leaves.
+The Laub project utility tool derives its name from the German word "Laub" for a stack of leaves or foliage.
 This name reflects the tool's purpose: managing the many different tools and components (leaves) that make up a modern software project.
-While the project name retains its German origin, all other terminology uses standard English to ensure accessibility and ease of use for the international developer community.
 
 ## Disclaimer
 This Project is very ambitious and therefore will need time to evolve.
+**I'm still in the designing phase.**

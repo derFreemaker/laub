@@ -1,7 +1,7 @@
 
 <br />
-<div style="display:flex;justify-content: center;align-items: center;">
-  <img src="./logo/detail_edit.png" height=500 alt="Laub Logo"/>
+<div align="center">
+  <img src="./logo/detail_edit.png" height=384 width=1024 alt="Laub Logo"/>
 </div>
 <br />
 

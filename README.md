@@ -1,6 +1,6 @@
 <br>
 <div align="center">
-  <img src="./logo.png" alt="Laub Logo" style="height:auto; width:80%;"/>
+  <img src="./logo_edit.png" alt="Laub Logo" style="height:auto; width:50%;"/>
 </div>
 
 ![](https://img.shields.io/badge/-Work%20in%20Progress-f00?style=for-the-badge)

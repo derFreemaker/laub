@@ -1,18 +1,39 @@
 const std = @import("std");
-const zlua = @import("zlua");
 
-pub fn foo() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
-
-    var lua = try zlua.Lua.init(allocator);
-    defer lua.deinit();
-    lua.openLibs();
-
-    const success = lua.doFile("test.lua");
-    if (success) |_| {} else |_| {
-        std.debug.print("Error: {s}\n", .{try lua.toString(-1)});
-        lua.pop(1);
+const Command = struct {
+    const Self = @This();
+    
+    name: []const u8,
+    
+    pub fn init(name: []const u8) Self {
+        return Self{
+            .name = name,
+        };
     }
+};
+
+const Laub = struct {
+    const Self = @This();
+    
+    commands: std.ArrayList(Command),
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .commands = std.ArrayList(Command).init(allocator)
+        };
+    }
+    
+    pub fn deinit(self: Self) void {
+        self.commands.deinit();
+    }
+};
+
+pub fn foo(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+    var foo2 = Laub.init(allocator);
+    defer _ = foo2.deinit();
+    
+    const command = try foo2.commands.addOne();
+    command.* = Command.init("test");
+    
+    return foo2.commands.items[0].name;
 }

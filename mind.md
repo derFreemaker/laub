@@ -3,14 +3,14 @@ This file contains some decisions and ideas that were considered.
 That might explain way something is the way it is.
 
 ## Table of Contents
-- [Tools](mind#Tools)
-- [Plugin system](<mind#Plugin system>)
-- [Dependencies](mind#Dependencies)
-- [Commands](mind#Commands)
-  - [Arguments](mind#Arguments)
-- [Interfaces for Tools](<mind#Interfaces for Tools>)
-    - [Generators](mind#Generators)
-    - [Runner](mind#Runner)
+- [Tools](#tools)
+- [Plugin system](#plugin-system)
+- [Dependencies](#dependencies)
+- [Commands](#commands)
+  - [Arguments](#arguments)
+- [Interfaces for Tools](#interfaces-for-tools)
+    - [Generators](#generators)
+    - [Runner](#runner)
 
 ## Tools
 The main thing of this utility is to manage tools,
@@ -54,5 +54,4 @@ This will need an extensive data set of what the generator should tell its build
 Also link targets which are built somewhere else will need to an external file for the build system.
 
 ### Runner
-A leaf which runs a tool over a shell will.
-
+A leaf which runs a tool over a shell or creates a process.

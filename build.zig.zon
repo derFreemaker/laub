@@ -40,6 +40,10 @@
             .url = "git+https://github.com/natecraddock/ziglua?ref=0.4.0#9257242a6fea6069f06d0b831d22f8df47307bfa",
             .hash = "zlua-0.4.0-hGRpC2rgBABehOIUe4yH9GhRxKvGBiHS25_ro61jFbTT",
         },
+        .yazap = .{
+            .url = "git+https://github.com/prajwalch/yazap#fdb6a88e30bd7d27d548dd9f9809df8429f9f87b",
+            .hash = "yazap-0.6.3-Z1t-EhflAQCN128_OyQRyDcnbbVFPngvhwonpAHTq36h",
+        },
     },
     .paths = .{
         "build.zig",

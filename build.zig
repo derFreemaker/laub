@@ -4,25 +4,27 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const yazap = b.dependency("yazap", .{});
     const zlua = b.dependency("zlua", .{
         .target = target,
         .optimize = optimize,
-        
+
         .lang = .lua54,
     });
-    
+
     const laub = b.addModule("laub", .{
         .target = target,
         .optimize = optimize,
 
         .root_source_file = b.path("src/laub.zig"),
     });
+    laub.addImport("yazap", yazap.module("yazap"));
     laub.addImport("zlua", zlua.module("zlua"));
-
+    
     const laub_driver = b.addModule("laub_driver", .{
         .target = target,
         .optimize = optimize,
-        
+
         .root_source_file = b.path("src/driver/main.zig"),
     });
     laub_driver.addImport("laub", laub);

@@ -23,4 +23,13 @@ This name reflects the tool's purpose: managing the many different tools and com
 
 ## Disclaimer
 This Project is very ambitious and therefore will need time to evolve.
-**I'm still in the designing phase.**
+
+**This project is still in it's designing phase.**
+
+A reflection of decisions which were made can be found [here](mind.md).
+
+## Dependencies
+(managed through zig)
+
+- [zlua](https://github.com/natecraddock/ziglua)
+- [yazap](https://github.com/prajwalch/yazap)

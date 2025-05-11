@@ -1,4 +1,4 @@
----@meta
+---@meta _
 
 ---@class laub.execution.options
 ---@field path string

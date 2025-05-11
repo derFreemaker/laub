@@ -1,3 +1,5 @@
+---@meta _
+
 ---@class laub.action.options
 ---@field name string
 

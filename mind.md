@@ -52,6 +52,11 @@ We want to show those indented in an action graph.
 ### Arguments
 Since commands can have arguments or flags we need a way to parse them out.
 This will also require a solid interface for creating them as well.
+We need a way to seperate a project being invoked from the command line
+or being included as a dependency.
+Idea is to sperate into a different file which gets run to configure the command line parameters.
+And parse an options table which then gets given to the main configure file.
+This way including the project as a dependecy doesn't need to bother with the command line parameter settings of the project.
 
 ## Interfaces for Tools
 An interface will be called 'leaf' to match the naming origin of Laub.

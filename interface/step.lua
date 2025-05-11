@@ -1,3 +1,5 @@
+---@meta _
+
 ---@class laub.step
 local step = {}
 
@@ -16,17 +18,17 @@ function step:after(desc, func)
 end
 
 ---@param func function
-function step:on_async(func)
+function step:async_on(func)
 end
 
 ---@param desc string
 ---@param func function
-function step:before_async(desc, func)
+function step:async_before(desc, func)
 end
 
 ---@param desc string
 ---@param func function
-function step:after_async(desc, func)
+function step:async_after(desc, func)
 end
 
 ---@class laub.steps

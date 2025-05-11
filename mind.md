@@ -13,11 +13,14 @@ That might explain way something is the way it is.
     - [Generators](#generators)
     - [Runner](#runner)
 - [Caching](#caching)
+  -  [Config](#caching-config)
+  -  [Plugin](#caching-plugin)
+  -  [Dependencies](#caching-dependencies)
 
 ## Performance
 We obviously want this tool to be as fast as possible.
-But since we are using lua for ease of use and want to enable to run custom function on specific steps.
-[We cannot just generate some cache files.](#caching)
+But since we are using lua for ease of use and want to enable to run custom functions.
+[Making that we cannot just generate some cache files.](#caching-config)
 
 ## Tools
 The main thing of this utility is to manage tools,
@@ -34,12 +37,9 @@ By being able to specify a location of a git repo or some kind of archive.
 That way we don't need to develop a plugin repo.
 
 ## Dependencies
-Target tree is probably the best way to approach this issue.
-Since we want to make it easy to link libraries which may use different build systems.
-We need to create your own dependency resolver and look which has to be done before one another.
-
-Integrating that with the steps system is going to be hell.
-We could make a difference for the 'build' command and make it so that you can add steps to a target.
+We are using an action graph.
+We can check for circle dependencies while adding an action
+and fail right then and there in the configuration phase.
 
 ## Commands
 We want commands like 'laub init' or 'laub build' to be fully customizable,
@@ -47,6 +47,7 @@ being able to add commands and flags to fit what the project needs.
 Also keeping a standard like init, build, package or deploy.
 Best is to make a Step system which you can add steps to and create relative steps,
 meaning a step can a have step before it and after.
+We want to show those indented in an action graph.
 
 ### Arguments
 Since commands can have arguments or flags we need a way to parse them out.
@@ -64,8 +65,18 @@ Also link targets which are built somewhere else will need to be an external fil
 A leaf which runs a tool over a shell or creates a process.
 
 ## Caching
+We should add caching to improve the speed at which tools are executed.
+
+### Caching (Config)
 Since caching the lua state is impossible without many restrictions.
 I decided the best option is to get a cache file path from a function.
-Other idea was to have a server process which runs in the background.
-The process could though just hang unnecessary around consuming resources in idle.
+Other idea was to have a server process which runs in the background, keeping the lua state and the surrounding memory alive.
+The process could though just hang around consuming resources in idle.
 Plus this would need extra logic to reload when a configuration file got changed.
+
+### Caching (Plugin)
+We could add an optional plugin cache simply to improve performance.
+When two projects use the same plugin.
+
+### Caching (Dependencies)
+We should add an optional source cache so you don't have to download every project over and over again.

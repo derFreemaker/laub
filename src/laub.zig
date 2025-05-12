@@ -1,6 +1,8 @@
 const std = @import("std");
 const zlua = @import("zlua");
 
+const CommandLine = @import("command_line.zig");
+
 pub const Laub = struct {
     lua: *zlua.Lua,
 
@@ -14,9 +16,8 @@ pub const Laub = struct {
         self.lua.deinit();
     }
     
-    pub fn execute(_: *Laub, args: [][:0]u8) void {
-        for (args, 0..) |arg, i| {
-            std.log.info("<{d}> {s}", .{ i, arg });
-        }
+    pub fn execute(self: *Laub, _: [][:0]u8) !void {
+        self.lua.openLibs();
+        try CommandLine.CommandParserConfigurator.run(self.lua, ".");
     }
 };

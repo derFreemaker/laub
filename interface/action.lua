@@ -8,7 +8,7 @@
 ---@field name string
 ---
 ---@field steps laub.steps
----@operator call: laub.steps
+-- ---@operator call: laub.steps
 local _action = {}
 
 ---@param action laub.action

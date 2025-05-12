@@ -1,4 +1,4 @@
----@meta
+---@meta _
 
 ---@class laub.parser.option
 ---@field name string
@@ -35,9 +35,12 @@ end
 function _parser.flag(option)
 end
 
---- A flag is a option which can only be false or true
 ---@param option laub.parser.option.positional
 function _parser.positional(option)
+end
+
+---@param func fun(laub.parser.parsed_options) : nil
+function _parser.parse(func)
 end
 
 laub_parser = _parser

@@ -2,11 +2,13 @@
 
 ---@class laub.action.options
 ---@field name string
+---@field after laub.action[]?
 
 ---@class laub.action
 ---@field name string
 ---
 ---@field steps laub.steps
+---@operator call: laub.steps
 local _action = {}
 
 ---@param action laub.action

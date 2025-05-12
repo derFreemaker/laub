@@ -1,7 +1,7 @@
 ---@meta _
 
 ---@class laub
----@field args table
+---@field options table
 ---@
 ---@field execute laub.execute
 local _laub = {}

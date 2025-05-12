@@ -7,28 +7,28 @@ local step = {}
 function step:on(func)
 end
 
----@param desc string
+---@param name string
 ---@param func function
-function step:before(desc, func)
+function step:before(name, func)
 end
 
----@param desc string
+---@param name string
 ---@param func function
-function step:after(desc, func)
+function step:after(name, func)
 end
 
 ---@param func function
 function step:async_on(func)
 end
 
----@param desc string
+---@param name string
 ---@param func function
-function step:async_before(desc, func)
+function step:async_before(name, func)
 end
 
----@param desc string
+---@param name string
 ---@param func function
-function step:async_after(desc, func)
+function step:async_after(name, func)
 end
 
 ---@class laub.steps

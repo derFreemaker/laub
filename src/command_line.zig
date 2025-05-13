@@ -2,16 +2,19 @@ const std = @import("std");
 const zlua = @import("zlua");
 const yazap = @import("yazap");
 
-const utils = @import("lua_utils.zig");
+const utils = @import("lua/utils.zig");
 
 pub const CommandParserConfigurator = struct {
     foo: i32,
+    foo2: i32,
 
     pub fn run(lua: *zlua.Lua, project_root: [:0]const u8) !void {
-        var parser = CommandParserConfigurator{
-            .foo = 123,
-        };
-        try utils.LuaAccessableStruct.init(lua, CommandParserConfigurator, &parser);
+        // var parser = CommandParserConfigurator{
+        //     .foo = 123,
+        //     .foo2 = 321,
+        // };
+        try utils.push(lua, "test string");
+        // try utils.pushValue(lua, &parser);
         lua.setGlobal("laub_parser");
 
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};

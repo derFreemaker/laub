@@ -18,5 +18,7 @@
 --     end
 -- end)
 
-laub_parser.foo = 125
-print(laub_parser.foo)
+-- laub_parser.foo2 = 123123
+print(laub_parser)
+
+-- print(laub_parser.foo)

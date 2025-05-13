@@ -34,15 +34,14 @@ fn structNewIndex(comptime T: type) zlua.CFn {
             const type_info = @typeInfo(T);
             inline for (type_info.@"struct".fields) |field| {
                 if (std.mem.eql(u8, field.name, field_name)) {
-                    if (getValue(field.type, lua, 3)) |value| {
+                    if (getValue(lua, field.type, 3)) |value| {
                         @field(struct_ptr.*, field.name) = value;
                     }
                     return 0;
                 }
             }
 
-            // field not found
-            return 0;
+            lua.raiseErrorStr("struct '%s' has no field '%s'", .{ @typeName(T), field_name.ptr });
         }
     }.newIndexFn);
 }
@@ -50,7 +49,7 @@ fn structNewIndex(comptime T: type) zlua.CFn {
 fn structToString(comptime T: type) zlua.CFn {
     return zlua.wrap(struct {
         fn toStringFn(lua: *zlua.Lua) i32 {
-            const ptr_wrapper = lua.checkUserdata(LuaAccessableStruct, 1, @typeName(LuaAccessableStruct));
+            const ptr_wrapper = lua.checkUserdata(LuaAccessableStruct, 1, @typeName(T));
 
             const struct_ptr = @as(*T, @alignCast(@ptrCast(ptr_wrapper.ptr)));
 
@@ -67,7 +66,7 @@ fn structToString(comptime T: type) zlua.CFn {
                     writer.print(", ", .{}) catch return 0;
                 }
                 writer.print("{s}: ", .{field.name}) catch return 0;
-
+                
                 // Print field value based on its type
                 printValue(writer, field.type, @field(struct_ptr.*, field.name)) catch return 0;
             }
@@ -167,13 +166,13 @@ pub fn pushValue(lua: *zlua.Lua, value: anytype) !void {
         .float => lua.pushNumber(value),
         .bool => lua.pushBoolean(value),
         .pointer => |ptr_info| {
-            if (ptr_info.size == .Slice and ptr_info.child == u8) {
+            if (ptr_info.size == .slice and ptr_info.child == u8) {
                 // String slice
-                lua.pushString(value);
-            } else if (ptr_info.size == .One) {
+                _ = lua.pushString(value);
+            } else if (ptr_info.size == .one) {
                 // Handle pointers to other types
                 // This is simplified - in a real implementation you'd want to handle more cases
-                LuaAccessableStruct.init(@TypeOf(value.*), &lua, value) catch {
+                LuaAccessableStruct.init(lua, @TypeOf(value.*), value) catch {
                     lua.pushNil();
                 };
             } else {
@@ -191,25 +190,31 @@ pub fn pushValue(lua: *zlua.Lua, value: anytype) !void {
     }
 }
 
-pub fn getValue(comptime T: type, lua: *zlua.Lua, index: i32) !?T {
+pub fn getValue(lua: *zlua.Lua, comptime T: type, index: i32) ?T {
     switch (@typeInfo(T)) {
         .int => {
-            if (lua.isInteger(index)) {
-                return @intCast(lua.toInteger(index) catch {
-                    
-                });
+            if (!lua.isInteger(index)) {
+                lua.raiseErrorStr("expected 'integer' got '%s'", .{lua.typeName(lua.typeOf(index)).ptr});
             }
+            return @intCast(lua.toInteger(index) catch unreachable);
         },
         .float => {
-            if (lua.isNumber(index)) {
-                return @floatCast(try lua.toNumber(index));
+            if (!lua.isNumber(index)) {
+                lua.raiseErrorStr("expected 'number' got '%s'", .{lua.typeName(lua.typeOf(index)).ptr});
             }
+            return @floatCast(lua.toNumber(index) catch unreachable);
         },
         .bool => {
+            if (!lua.isBoolean(index)) {
+                lua.raiseErrorStr("expected 'boolean' got '%s'", .{lua.typeName(lua.typeOf(index)).ptr});
+            }
             return lua.toBoolean(index);
         },
         .pointer => {
-            return lua.toUserdata(T, index);
+            if (!lua.isLightUserdata(index)) {
+                lua.raiseErrorStr("expected 'lightuserdata' got '%s'", .{lua.typeName(lua.typeOf(index)).ptr});
+            }
+            return lua.toUserdata(T, index) catch unreachable;
         },
         .optional => |opt| {
             if (lua.isNil(index)) {

@@ -18,6 +18,6 @@ pub const Laub = struct {
     
     pub fn execute(self: *Laub, _: [][:0]u8) !void {
         self.lua.openLibs();
-        try CommandLine.CommandParserConfigurator.run(self.lua, ".");
+        try CommandLine.configure_command_line_args(self.lua, ".");
     }
 };

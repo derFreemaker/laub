@@ -1,6 +1,79 @@
 const std = @import("std");
 const zlua = @import("zlua");
 
+const utils = @This();
+
+pub const LuaFunc = fn (lua: *zlua.Lua) i32;
+
+pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
+    return zlua.wrap(struct {
+        pub fn indexFn(lua: *zlua.Lua) i32 {
+            const struct_ptr = lua.checkUserdata(*T, 1, @typeName(T));
+
+            const field_name = lua.toString(2) catch {
+                lua.pushNil();
+                return 1;
+            };
+
+            const type_info = @typeInfo(T);
+            inline for (type_info.@"struct".fields) |field| {
+                if (std.mem.eql(u8, field.name, field_name)) {
+                    try utils.push(lua, @field(struct_ptr.*.*, field.name));
+                    return 1;
+                }
+            }
+
+            inline for (@typeInfo(T).@"struct".decls) |decl| {
+                const field = @field(T, decl.name);
+                if (@TypeOf(field) == LuaFunc) {
+                    lua.pushFunction(zlua.wrap(field));
+                } else if (@TypeOf(field) == zlua.CFn) {
+                    lua.pushFunction(field);
+                } else {
+                    break;
+                    // try utils.push(lua, field);
+                }
+
+                return 1;
+            }
+
+            lua.pushNil();
+            return 1;
+        }
+    }.indexFn);
+}
+
+fn isLuaStruct(lua: *zlua.Lua, comptime T: type, index: i32) bool {
+    _ = lua.testUserdata(T, index, @typeName(T)) catch return false;
+    return true;
+}
+
+fn getLuaStruct(lua: *zlua.Lua, comptime T: type, index: i32) !*T {
+    if (!isLuaStruct(lua, T, index)) {
+        return error.TypeMissmatch;
+    }
+
+    return lua.toUserdata(T, index) catch unreachable;
+}
+
+fn pushLuaStruct(lua: *zlua.Lua, comptime T: type, data: *T) !void {
+    const userdata = lua.newUserdata(*T, 0);
+    userdata.* = data;
+
+    if (lua.getMetatableRegistry(@typeName(T)) == .nil) {
+        lua.pop(1);
+
+        try lua.newMetatable(@typeName(T));
+
+        {
+            lua.pushFunction(DefaultLuaStructIndex(T));
+            lua.setField(-2, "__index");
+        }
+    }
+
+    lua.setMetatable(-2);
+}
+
 pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
@@ -15,6 +88,8 @@ pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
         .pointer => |ptr_info| {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 return lua.isString(index);
+            } else if (isLuaStruct(lua, ptr_info.child, index)) {
+                return true;
             } else {
                 return lua.isLightUserdata(index);
             }
@@ -25,6 +100,7 @@ pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
             }
             return is(lua, opt.child, index);
         },
+        else => {},
     }
 
     return false;
@@ -49,6 +125,12 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !T {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 return lua.toString(index) catch unreachable;
             }
+            if (isLuaStruct(lua, ptr_info.child, index)) {
+                return getLuaStruct(lua, ptr_info.child, index);
+            }
+            if (ptr_info.size == .one) {
+                return lua.toUserdata(ptr_info.child, index);
+            }
         },
         .optional => |opt| {
             if (lua.isNil(index)) {
@@ -56,6 +138,7 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !T {
             }
             return get(lua, opt.child, index);
         },
+        else => {},
     }
 
     // when we encounter this error means that is(...) and get(...) are out of sync
@@ -83,6 +166,11 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 _ = lua.pushString(value);
                 return;
             } else if (ptr_info.size == .one) {
+                if (@typeInfo(ptr_info.child) == .@"struct") {
+                    try pushLuaStruct(lua, ptr_info.child, value);
+                    return;
+                }
+
                 lua.pushLightUserdata(value);
                 return;
             }
@@ -98,6 +186,7 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 return;
             }
         },
+        else => {},
     }
 
     return error.UnsupportedValue;
@@ -133,6 +222,7 @@ pub fn print(writer: anytype, value: anytype) !void {
         .@"struct" => {
             try writer.print("{s}{{...}}", .{@typeName(T)});
         },
+        else => {},
     }
 
     return error.UnsupportedType;

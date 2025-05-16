@@ -18,4 +18,7 @@
 --     end
 -- end)
 
-laub_parser.option("test test")
+print(laub_parser)
+
+laub_parser:option("test test")
+laub_parser:option()

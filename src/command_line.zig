@@ -5,14 +5,15 @@ const yazap = @import("yazap");
 const utils = @import("lua/utils.zig");
 
 pub const CommandParserConfigurator = struct {
-    pub fn option(lua: *zlua.Lua) i32 {
-        std.debug.print("{s}\n", .{lua.checkString(1)});
-        return 0;
+    pub fn option(_: *CommandParserConfigurator, str: ?[:0]const u8) !void {
+        std.debug.print("{s}\n", .{str orelse "NONE"});
     }
 };
 
 pub fn configure_command_line_args(lua: *zlua.Lua, project_root: [:0]const u8) !void {
-    var parser = CommandParserConfigurator{};
+    var parser = CommandParserConfigurator{
+        
+    };
     try utils.push(lua, &parser);
     lua.setGlobal("laub_parser");
     
@@ -26,7 +27,7 @@ pub fn configure_command_line_args(lua: *zlua.Lua, project_root: [:0]const u8) !
     defer allocator.free(path);
 
     lua.doFile(path) catch {
-        std.debug.print("{s}", .{ try lua.toString(-1) });
+        std.debug.print("{s}", .{try lua.toString(-1)});
         lua.pop(1);
     };
 }

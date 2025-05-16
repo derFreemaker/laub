@@ -8,12 +8,17 @@ pub const LuaFunc = fn (lua: *zlua.Lua) i32;
 pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
     return zlua.wrap(struct {
         pub fn indexFn(lua: *zlua.Lua) i32 {
-            const struct_ptr = lua.checkUserdata(*T, 1, @typeName(T));
+            const struct_ptr = check(lua, T, 1);
 
             const field_name = lua.toString(2) catch {
                 lua.pushNil();
                 return 1;
             };
+
+            if (field_name[0] == '_') {
+                lua.pushNil();
+                return 1;
+            }
 
             const type_info = @typeInfo(T);
             inline for (type_info.@"struct".fields) |field| {
@@ -25,13 +30,10 @@ pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
 
             inline for (@typeInfo(T).@"struct".decls) |decl| {
                 const field = @field(T, decl.name);
-                if (@TypeOf(field) == LuaFunc) {
-                    lua.pushFunction(zlua.wrap(field));
-                } else if (@TypeOf(field) == zlua.CFn) {
-                    lua.pushFunction(field);
+                if (@typeInfo(@TypeOf(field)) == .@"fn") {
+                    lua.pushFunction(wrap(field));
                 } else {
-                    break;
-                    // try utils.push(lua, field);
+                    @compileError("struct doesn't support any other declaration than functions: " ++ decl.name);
                 }
 
                 return 1;
@@ -43,27 +45,16 @@ pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
     }.indexFn);
 }
 
-fn isLuaStruct(lua: *zlua.Lua, comptime T: type, index: i32) bool {
-    _ = lua.testUserdata(T, index, @typeName(T)) catch return false;
-    return true;
-}
-
-fn getLuaStruct(lua: *zlua.Lua, comptime T: type, index: i32) !*T {
-    if (!isLuaStruct(lua, T, index)) {
-        return error.TypeMissmatch;
-    }
-
-    return lua.toUserdata(T, index) catch unreachable;
-}
-
 fn pushLuaStruct(lua: *zlua.Lua, comptime T: type, data: *T) !void {
-    const userdata = lua.newUserdata(*T, 0);
+    const pointer_type = *T;
+    
+    const userdata = lua.newUserdata(pointer_type, 0);
     userdata.* = data;
 
-    if (lua.getMetatableRegistry(@typeName(T)) == .nil) {
+    if (lua.getMetatableRegistry(@typeName(pointer_type)) == .nil) {
         lua.pop(1);
 
-        try lua.newMetatable(@typeName(T));
+        try lua.newMetatable(@typeName(pointer_type));
 
         {
             lua.pushFunction(DefaultLuaStructIndex(T));
@@ -88,10 +79,9 @@ pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
         .pointer => |ptr_info| {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 return lua.isString(index);
-            } else if (isLuaStruct(lua, ptr_info.child, index)) {
+            }
+            if (lua.isLightUserdata(index)) {
                 return true;
-            } else {
-                return lua.isLightUserdata(index);
             }
         },
         .optional => |opt| {
@@ -100,13 +90,25 @@ pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
             }
             return is(lua, opt.child, index);
         },
+        .@"struct" => {
+            _ = lua.testUserdata(T, index, @typeName(T)) catch return false;
+            return true;
+        },
         else => {},
     }
 
     return false;
 }
 
-pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !T {
+fn PointerIfStruct(comptime T: type) type {
+    if (@typeInfo(T) == .@"struct") {
+        return *T;
+    }
+
+    return T;
+}
+
+pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !PointerIfStruct(T) {
     if (!is(lua, T, index)) {
         return error.TypeMismatch;
     }
@@ -125,12 +127,7 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !T {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 return lua.toString(index) catch unreachable;
             }
-            if (isLuaStruct(lua, ptr_info.child, index)) {
-                return getLuaStruct(lua, ptr_info.child, index);
-            }
-            if (ptr_info.size == .one) {
-                return lua.toUserdata(ptr_info.child, index);
-            }
+            return lua.toUserdata(ptr_info.child, index);
         },
         .optional => |opt| {
             if (lua.isNil(index)) {
@@ -138,11 +135,47 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !T {
             }
             return get(lua, opt.child, index);
         },
+        .@"struct" => {
+            return lua.toUserdata(T, index);
+        },
         else => {},
     }
 
     // when we encounter this error means that is(...) and get(...) are out of sync
     return error.UnsupportedType;
+}
+
+pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) PointerIfStruct(T) {
+    std.debug.print("{s}\n", .{@typeName(T)});
+    std.debug.dumpCurrentStackTrace(null);
+    
+    switch (@typeInfo(T)) {
+        .int, .comptime_int => {
+            return @intCast(lua.checkInteger(index));
+        },
+        .float, .comptime_float => {
+            return @floatCast(lua.checkNumber(index));
+        },
+        .bool => {
+            return lua.toBoolean(index);
+        },
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .slice and ptr_info.child == u8) {
+                return lua.checkString(index);
+            }
+            return lua.checkUserdata(ptr_info.child, index, @typeName(T));
+        },
+        .optional => |opt| {
+            if (lua.isNil(index) or lua.getTop() < index) {
+                return null;
+            }
+            return check(lua, opt.child, index);
+        },
+        .@"struct" => {
+            return lua.checkUserdata(T, index, @typeName(*T));
+        },
+        else => {},
+    }
 }
 
 pub fn push(lua: *zlua.Lua, value: anytype) !void {
@@ -186,6 +219,11 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 return;
             }
         },
+        // .@"struct" => |struct_info| {
+        //     if (struct_info.is_tuple) {
+        //         @compileError("implement custom handling of tuples");
+        //     }
+        // },
         else => {},
     }
 
@@ -226,4 +264,62 @@ pub fn print(writer: anytype, value: anytype) !void {
     }
 
     return error.UnsupportedType;
+}
+
+pub fn wrap(comptime func: anytype) zlua.CFn {
+    const func_type = @TypeOf(func);
+    if (@typeInfo(func_type) != .@"fn") {
+        @compileError("Wrap only accepts functions");
+    }
+    if (func_type == LuaFunc) {
+        return zlua.wrap(func);
+    } else if (func_type == zlua.CFn) {
+        return func;
+    }
+
+    const func_info = @typeInfo(func_type).@"fn";
+    const params = func_info.params;
+    const has_error_union = @typeInfo(func_info.return_type.?) == .error_union;
+
+    return zlua.wrap(struct {
+        pub fn call(lua: *zlua.Lua) i32 {
+            var args: createArgsType(func_info) = undefined;
+            var lua_arg_index: i32 = 0;
+            inline for (params, 0..) |param, i| {
+                lua_arg_index += 1;
+
+                const param_type = param.type orelse @compileError("parameter type required");
+                args[i] = check(lua, param_type, lua_arg_index);
+            }
+            lua.pop(lua.getTop()); // clear function stack
+
+            const result = if (has_error_union)
+                @call(.always_inline, func, args) catch |err| {
+                    lua.raiseErrorStr(@errorName(err), .{});
+                    unreachable; // Needed because raiseErrorStr never returns
+                }
+            else
+                @call(.always_inline, func, args);
+
+            if (@TypeOf(result) == void) {
+                return 0;
+            }
+            push(lua, result) catch |err| {
+                lua.raiseErrorStr("push(%s): %s", .{ @typeName(@TypeOf(result)).ptr, @errorName(err).ptr });
+            };
+            return 1;
+        }
+    }.call);
+}
+
+fn createArgsType(comptime fn_type: std.builtin.Type.Fn) type {
+    return std.meta.Tuple(&compileHelperParams(fn_type.params));
+}
+
+fn compileHelperParams(comptime params: []const std.builtin.Type.Fn.Param) [params.len]type {
+    var result: [params.len]type = undefined;
+    for (params, 0..) |param, i| {
+        result[i] = param.type.?;
+    }
+    return result;
 }

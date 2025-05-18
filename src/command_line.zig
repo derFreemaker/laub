@@ -9,9 +9,7 @@ pub const CommandParserConfigurator = struct {
         return utils.DefaultLuaStructIndex(CommandParserConfigurator)(lua);
     }
 
-    pub fn option(_: *CommandParserConfigurator, str: ?[:0]const u8) !void {
-        std.debug.print("{s}\n", .{str orelse "NONE"});
-    }
+    pub fn option(_: *CommandParserConfigurator, _: []utils.LuaAny, _: [:0]const u8) void {}
 };
 
 pub fn configure_command_line_args(lua: *zlua.Lua, project_root: [:0]const u8) !void {

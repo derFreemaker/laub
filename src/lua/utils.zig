@@ -5,17 +5,184 @@ const utils = @This();
 
 pub const LuaFunc = fn (lua: *zlua.Lua) i32;
 
-pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
-    return zlua.wrap(struct {
+pub const LuaValue = union(enum) {
+    none,
+    nil,
+    boolean: bool,
+    integer: i64,
+    number: f64,
+    string: StringRef,
+    table: TableRef,
+    function: FunctionRef,
+    lightuserdata: *anyopaque,
+    userdata: UserdataRef,
+    thread: ThreadRef,
+
+    pub const StringRef = struct {
+        ref_index: i32,
+        data: [:0]const u8,
+    };
+
+    pub const TableRef = struct {
+        ref_index: i32,
+    };
+
+    pub const FunctionRef = struct {
+        ref_index: i32,
+    };
+
+    pub const UserdataRef = struct {
+        ref_index: i32,
+        ptr: *anyopaque,
+    };
+
+    pub const ThreadRef = struct {
+        ref_index: i32,
+        thread: *zlua.Lua,
+    };
+
+    fn createRef(lua: *zlua.Lua, index: i32) i32 {
+        lua.pushValue(index);
+        return lua.ref(zlua.registry_index) catch unreachable;
+    }
+
+    fn releaseRef(lua: *zlua.Lua, ref_index: i32) void {
+        lua.unref(zlua.registry_index, ref_index);
+    }
+
+    pub fn get(lua: *zlua.Lua, index: i32) LuaValue {
+        const lua_type = lua.typeOf(index);
+
+        switch (lua_type) {
+            .none => {
+                return LuaValue{ .none = {} };
+            },
+            .nil => {
+                return LuaValue{ .nil = {} };
+            },
+            .boolean => {
+                return LuaValue{ .boolean = lua.toBoolean(index) };
+            },
+            .number => {
+                return LuaValue{ .number = lua.toNumber(index) catch unreachable };
+            },
+            .string => {
+                return LuaValue{ .string = .{ .ref_index = createRef(lua, index), .data = lua.toString(index) catch unreachable } };
+            },
+            .table => {
+                return LuaValue{ .table = .{ .ref_index = createRef(lua, index) } };
+            },
+            .function => {
+                return LuaValue{ .function = .{ .ref_index = createRef(lua, index) } };
+            },
+            .light_userdata => {
+                return LuaValue{ .lightuserdata = lua.toUserdata(anyopaque, index) catch unreachable };
+            },
+            .userdata => {
+                return LuaValue{ .userdata = .{ .ref_index = createRef(lua, index), .ptr = lua.toUserdata(anyopaque, index) catch unreachable } };
+            },
+            .thread => {
+                return LuaValue{ .thread = .{ .ref_index = createRef(lua, index), .thread = lua.toThread(index) catch unreachable } };
+            },
+        }
+    }
+
+    pub fn push(self: *LuaValue, lua: *zlua.Lua) void {
+        switch (self.*) {
+            .none => {},
+            .nil => lua.pushNil(),
+            .boolean => |b| lua.pushBoolean(b),
+            .integer => |i| lua.pushInteger(i),
+            .number => |n| lua.pushNumber(n),
+            .string => |s| _ = lua.pushString(s.data),
+            .table => |t| lua.rawGetIndex(zlua.registry_index, t.ref_index),
+            .function => |f| lua.rawGetIndex(zlua.registry_index, f.ref_index),
+            .lightuserdata => |p| lua.pushLightUserdata(p),
+            .userdata => |u| lua.rawGetIndex(zlua.registry_index, u.ref_index),
+            .thread => |t| lua.rawGetIndex(zlua.registry_index, t.ref_index),
+        }
+    }
+
+    pub fn deinit(self: *LuaValue, lua: *zlua.Lua) void {
+        switch (self.*) {
+            .table => |t| {
+                releaseRef(lua, t.ref_index);
+            },
+            .function => |f| {
+                releaseRef(lua, f.ref_index);
+            },
+            .userdata => |u| {
+                releaseRef(lua, u.ref_index);
+            },
+            .thread => |t| {
+                releaseRef(lua, t.ref_index);
+            },
+            else => {},
+        }
+    }
+
+    pub fn typeName(self: *const LuaValue) [:0]const u8 {
+        return switch (self.*) {
+            .none => "none",
+            .nil => "nil",
+            .boolean => "boolean",
+            .integer => "integer",
+            .number => "number",
+            .string => "string",
+            .table => "table",
+            .function => "function",
+            .lightuserdata => "lightuserdata",
+            .userdata => "userdata",
+            .thread => "thread",
+        };
+    }
+};
+
+const ManyValuesTag = struct {};
+
+pub fn ManyValues(comptime T: type) type {
+    return struct {
+        tag: ManyValuesTag = .{},
+
+        values: []T,
+
+        pub fn get(lua: *zlua.Lua, index: i32) ManyValues(T) {
+            while (is(lua, T, index)) {}
+        }
+
+        pub fn push(self: *ManyValues(T), lua: *zlua.Lua) !void {
+            for (self.values) |value| {
+                try utils.push(lua, value);
+            }
+        }
+    };
+}
+
+pub fn isManyValues(comptime T: type) bool {
+    switch (@typeInfo(T)) {
+        .@"struct" => |s| {
+            for (s.fields) |field| {
+                if (std.mem.eql(u8, field.name, "tag") and field.type == ManyValuesTag) {
+                    return true;
+                }
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+pub fn DefaultLuaStructIndex(comptime T: type) LuaFunc {
+    return struct {
         pub fn indexFn(lua: *zlua.Lua) i32 {
             const struct_ptr = check(lua, T, 1);
-
             const field_name = lua.toString(2) catch {
                 lua.pushNil();
                 return 1;
             };
+            lua.pop(2);
 
-            if (field_name[0] == '_') {
+            if (std.mem.startsWith(u8, field_name, "_")) {
                 lua.pushNil();
                 return 1;
             }
@@ -23,45 +190,55 @@ pub fn DefaultLuaStructIndex(comptime T: type) zlua.CFn {
             const type_info = @typeInfo(T);
             inline for (type_info.@"struct".fields) |field| {
                 if (std.mem.eql(u8, field.name, field_name)) {
-                    try utils.push(lua, @field(struct_ptr.*.*, field.name));
+                    try push(lua, @field(struct_ptr.*.*, field.name));
                     return 1;
                 }
             }
 
             inline for (@typeInfo(T).@"struct".decls) |decl| {
-                const field = @field(T, decl.name);
-                if (@typeInfo(@TypeOf(field)) == .@"fn") {
-                    lua.pushFunction(wrap(field));
-                } else {
-                    @compileError("struct doesn't support any other declaration than functions: " ++ decl.name);
+                if (std.mem.eql(u8, decl.name, field_name)) {
+                    const field = @field(T, decl.name);
+                    if (@typeInfo(@TypeOf(field)) == .@"fn") {
+                        try push(lua, field);
+                    } else {
+                        @compileError("struct doesn't support any other declaration than functions: " ++ decl.name);
+                    }
+                    return 1;
                 }
-
-                return 1;
             }
 
             lua.pushNil();
             return 1;
         }
-    }.indexFn);
+    }.indexFn;
 }
 
-fn pushLuaStruct(lua: *zlua.Lua, comptime T: type, data: *T) !void {
-    const pointer_type = *T;
-    
-    const userdata = lua.newUserdata(pointer_type, 0);
-    userdata.* = data;
+fn createMetatable(lua: *zlua.Lua, comptime T: type, comptime meta: type) !void {
+    try lua.newMetatable(@typeName(T));
 
-    if (lua.getMetatableRegistry(@typeName(pointer_type)) == .nil) {
-        lua.pop(1);
-
-        try lua.newMetatable(@typeName(pointer_type));
-
-        {
-            lua.pushFunction(DefaultLuaStructIndex(T));
-            lua.setField(-2, "__index");
-        }
+    if (@hasDecl(meta, "__index")) {
+        lua.pushFunction(wrap(meta.__index));
+        lua.setField(-2, "__index");
     }
 
+    if (@hasDecl(meta, "__newindex")) {
+        lua.pushFunction(wrap(meta.__newindex));
+        lua.setField(-2, "__newindex");
+    }
+
+    if (@hasDecl(meta, "__gc")) {
+        lua.pushFunction(wrap(meta.__gc));
+        lua.setField(-2, "__gc");
+    }
+
+    //TODO: implement more metamethods
+}
+
+fn getOrCreateMetatable(lua: *zlua.Lua, comptime T: type, comptime meta: type) !void {
+    if (lua.getMetatableRegistry(@typeName(T)) == .nil) {
+        lua.pop(1);
+        try createMetatable(lua, T, meta);
+    }
     lua.setMetatable(-2);
 }
 
@@ -101,6 +278,14 @@ pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) bool {
 }
 
 fn PointerIfStruct(comptime T: type) type {
+    if (T == LuaValue) {
+        return LuaValue;
+    }
+
+    if (isManyValues(T)) {
+        return T;
+    }
+
     if (@typeInfo(T) == .@"struct") {
         return *T;
     }
@@ -108,9 +293,9 @@ fn PointerIfStruct(comptime T: type) type {
     return T;
 }
 
-pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !PointerIfStruct(T) {
-    if (!is(lua, T, index)) {
-        return error.TypeMismatch;
+pub fn getUnchecked(lua: *zlua.Lua, comptime T: type, index: i32) !PointerIfStruct(T) {
+    if (T == LuaValue) {
+        return LuaValue.get(lua, index);
     }
 
     switch (@typeInfo(T)) {
@@ -145,10 +330,23 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !PointerIfStruct(T) {
     return error.UnsupportedType;
 }
 
+pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !PointerIfStruct(T) {
+    if (T == LuaValue) {
+        return LuaValue.get(lua, index);
+    }
+
+    if (!is(lua, T, index)) {
+        return error.TypeMismatch;
+    }
+
+    return getUnchecked(lua, T, index);
+}
+
 pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) PointerIfStruct(T) {
-    std.debug.print("{s}\n", .{@typeName(T)});
-    std.debug.dumpCurrentStackTrace(null);
-    
+    if (T == LuaValue) {
+        return LuaValue.get(lua, index);
+    }
+
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
             return @intCast(lua.checkInteger(index));
@@ -163,6 +361,11 @@ pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) PointerIfStruct(T) {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 return lua.checkString(index);
             }
+
+            if (lua.isLightUserdata(index)) {
+                return lua.toUserdata(ptr_info.child, index) catch unreachable;
+            }
+
             return lua.checkUserdata(ptr_info.child, index, @typeName(T));
         },
         .optional => |opt| {
@@ -174,12 +377,19 @@ pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) PointerIfStruct(T) {
         .@"struct" => {
             return lua.checkUserdata(T, index, @typeName(*T));
         },
+        .@"fn" => {
+            return lua.autoPushFunction(index);
+        },
         else => {},
     }
 }
 
 pub fn push(lua: *zlua.Lua, value: anytype) !void {
     const T = @TypeOf(value);
+
+    if (T == LuaValue) {
+        value.push(lua);
+    }
 
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
@@ -199,12 +409,9 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 _ = lua.pushString(value);
                 return;
             } else if (ptr_info.size == .one) {
-                if (@typeInfo(ptr_info.child) == .@"struct") {
-                    try pushLuaStruct(lua, ptr_info.child, value);
-                    return;
-                }
-
-                lua.pushLightUserdata(value);
+                const userdata = lua.newUserdata(T, 0);
+                userdata.* = value;
+                try getOrCreateMetatable(lua, T, ptr_info.child);
                 return;
             }
 
@@ -219,11 +426,20 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 return;
             }
         },
-        // .@"struct" => |struct_info| {
-        //     if (struct_info.is_tuple) {
-        //         @compileError("implement custom handling of tuples");
-        //     }
-        // },
+        .@"struct" => |struct_info| {
+            if (struct_info.is_tuple) {
+                @compileError("implement custom handling of tuples");
+            }
+
+            const userdata = lua.newUserdata(T, 0);
+            userdata.* = value;
+            try getOrCreateMetatable(lua, T, T);
+            return;
+        },
+        .@"fn" => {
+            lua.pushFunction(wrap(value));
+            return;
+        },
         else => {},
     }
 
@@ -283,9 +499,13 @@ pub fn wrap(comptime func: anytype) zlua.CFn {
 
     return zlua.wrap(struct {
         pub fn call(lua: *zlua.Lua) i32 {
-            var args: createArgsType(func_info) = undefined;
+            var args: std.meta.ArgsTuple(func_type) = undefined;
             var lua_arg_index: i32 = 0;
             inline for (params, 0..) |param, i| {
+                if (param.type == *zlua.Lua) {
+                    args[0] = lua;
+                    continue;
+                }
                 lua_arg_index += 1;
 
                 const param_type = param.type orelse @compileError("parameter type required");
@@ -312,11 +532,7 @@ pub fn wrap(comptime func: anytype) zlua.CFn {
     }.call);
 }
 
-fn createArgsType(comptime fn_type: std.builtin.Type.Fn) type {
-    return std.meta.Tuple(&compileHelperParams(fn_type.params));
-}
-
-fn compileHelperParams(comptime params: []const std.builtin.Type.Fn.Param) [params.len]type {
+fn compileParams(comptime params: []const std.builtin.Type.Fn.Param) [params.len]type {
     var result: [params.len]type = undefined;
     for (params, 0..) |param, i| {
         result[i] = param.type.?;

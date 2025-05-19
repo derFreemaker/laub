@@ -65,8 +65,12 @@ fn isTypeString(typeinfo: std.builtin.Type.Pointer) bool {
     return false;
 }
 
-fn isTypeArray(typeinfo: std.builtin.Type.Pointer) bool {
-    return switch (typeinfo.size) {
+fn isTypeArray(type_info: std.builtin.Type.Pointer) bool {
+    if (isTypeString(type_info)) {
+        return false;
+    }
+
+    return switch (type_info.size) {
         .slice, .many => true,
         else => false,
     };
@@ -113,14 +117,14 @@ pub fn IndexCovered(comptime T: type) type {
     };
 }
 
-pub fn IndexCoveredOne(value: anytype) IndexCovered(@TypeOf(value)) {
+pub fn indexCoveredOne(value: anytype) IndexCovered(@TypeOf(value)) {
     return .{
         .index_covered = 1,
         .value = value,
     };
 }
 
-pub fn IndexCoveredMany(value: anytype, covered: i32) IndexCovered(@TypeOf(value)) {
+pub fn indexCoveredMany(value: anytype, covered: i32) IndexCovered(@TypeOf(value)) {
     return .{
         .index_covered = covered,
         .value = value,
@@ -142,10 +146,10 @@ fn pushRef(lua: *zlua.Lua, ref_index: i32) void {
 
 pub const LuaTable = struct {
     ref_index: i32,
-    lua: *zlua.Lua,
+    _lua: *zlua.Lua,
 
     pub fn deinit(self: *LuaTable) void {
-        releaseRef(self.lua, self.ref_index);
+        releaseRef(self._lua, self.ref_index);
     }
 
     pub fn get(lua: *zlua.Lua, index: i32) !LuaTable {
@@ -155,7 +159,7 @@ pub const LuaTable = struct {
 
         return LuaTable{
             .ref_index = createRef(lua, index),
-            .lua = lua,
+            ._lua = lua,
         };
     }
 
@@ -164,25 +168,44 @@ pub const LuaTable = struct {
         return LuaTable.get(lua, index) catch unreachable;
     }
 
-    pub fn push(self: LuaTable) void {
-        pushRef(self.lua, self.ref_index);
+    pub fn push(self: *const LuaTable) void {
+        pushRef(self._lua, self.ref_index);
     }
 
-    pub fn setField(self: LuaTable, index: anytype, value: anytype) !void {
+    pub fn setField(self: *const LuaTable, index: anytype, value: anytype) !void {
         self.push();
-        try utils.push(self.lua, index);
-        try utils.push(self.lua, value);
-        self.lua.setTable(-3);
-        self.lua.pop(1);
+        try utils.push(self._lua, index);
+        try utils.push(self._lua, value);
+        self._lua.setTable(-3);
+        self._lua.pop(1);
     }
 
-    pub fn getField(self: LuaTable, index: anytype) !LuaAny {
+    pub fn rawSetField(self: *const LuaTable, index: anytype, value: anytype) !void {
         self.push();
-        try utils.push(self.lua, index);
-        _ = self.lua.getTable(-2);
+        try utils.push(self._lua, index);
+        try utils.push(self._lua, value);
+        self._lua.rawSetTable(-3);
+        self._lua.pop(1);
+    }
 
-        const value = try utils.get(self.lua, LuaAny, -1);
-        self.lua.pop(2);
+    pub fn getField(self: *const LuaTable, index: anytype) !LuaAny {
+        self.push();
+        try utils.push(self._lua, index);
+        _ = self._lua.getTable(-2);
+
+        const value = try utils.get(self._lua, LuaAny, -1);
+        self._lua.pop(2);
+
+        return value.value;
+    }
+
+    pub fn rawGetField(self: *const LuaTable, index: anytype) !LuaAny {
+        self.push();
+        try utils.push(self._lua, index);
+        _ = self._lua.rawGetTable(-2);
+
+        const value = try .utils.get(self._lua, LuaAny, -1);
+        self._lua.pop(2);
 
         return value;
     }
@@ -285,7 +308,7 @@ pub const LuaAny = union(enum) {
         }
     }
 
-    pub fn push(self: *LuaAny) void {
+    pub fn push(self: *const LuaAny) void {
         switch (self.*) {
             .none => {},
             .nil => |n| n.lua.pushNil(),
@@ -336,25 +359,36 @@ pub const LuaAny = union(enum) {
     }
 };
 
-pub fn DefaultLuaStructIndex(comptime T: type) LuaFunc {
+pub fn defaultLuaStructIndex(comptime T: type, hide_prefix: ?[:0]const u8) LuaFunc {
     return struct {
         pub fn indexFn(lua: *zlua.Lua) i32 {
-            const struct_ptr = check(lua, T, 1);
+            const struct_ptr: *T = blk: {
+                if (!is(lua, *T, 1, @typeName(T)).value) {
+                    break :blk check(lua, *T, 1, @typeName(*T)).value;
+                }
+                break :blk check(lua, *T, 1, @typeName(T)).value;
+            };
+
             const field_name = lua.toString(2) catch {
                 lua.pushNil();
                 return 1;
             };
             lua.pop(2);
 
-            if (std.mem.startsWith(u8, field_name, "_")) {
-                lua.pushNil();
-                return 1;
+            if (hide_prefix) |prefix| {
+                if (std.mem.startsWith(u8, field_name, prefix)) {
+                    lua.pushNil();
+                    return 1;
+                }
             }
 
             const type_info = @typeInfo(T);
             inline for (type_info.@"struct".fields) |field| {
                 if (std.mem.eql(u8, field.name, field_name)) {
-                    try push(lua, @field(struct_ptr.*.*, field.name));
+                    push(lua, @field(struct_ptr.*, field.name)) catch {
+                        const src = @src();
+                        lua.raiseErrorStr("unable to push to lua: %s:%d:%d", .{ src.file.ptr, src.line, src.column });
+                    };
                     return 1;
                 }
             }
@@ -363,9 +397,13 @@ pub fn DefaultLuaStructIndex(comptime T: type) LuaFunc {
                 if (std.mem.eql(u8, decl.name, field_name)) {
                     const field = @field(T, decl.name);
                     if (@typeInfo(@TypeOf(field)) == .@"fn") {
-                        try push(lua, field);
+                        push(lua, field) catch {
+                            const src = @src();
+                            lua.raiseErrorStr("unable to push to lua: %s:%d:%d", .{ src.file.ptr, src.line, src.column });
+                        };
                     } else {
-                        @compileError("struct doesn't support any other declaration than functions: " ++ decl.name);
+                        //TODO: expand functionality
+                        @compileError("doesn't support any other declaration than functions: " ++ decl.name);
                     }
                     return 1;
                 }
@@ -410,7 +448,7 @@ fn isArray(lua: *zlua.Lua, comptime _: type, _index: i32) IndexCovered(bool) {
     const index = absoluteIndex(lua, _index);
 
     if (lua.typeOf(index) != .table) {
-        return IndexCoveredOne(false);
+        return indexCoveredOne(false);
     }
 
     @compileError("implement this");
@@ -480,7 +518,7 @@ fn toArray(lua: *zlua.Lua, comptime child: type, _index: i32, push_err_msg: bool
         }
     }
 
-    return IndexCoveredOne(arr);
+    return indexCoveredOne(arr);
 }
 
 fn isTuple(lua: *zlua.Lua, comptime info: std.builtin.Type.Struct, _index: i32) IndexCovered(bool) {
@@ -488,10 +526,10 @@ fn isTuple(lua: *zlua.Lua, comptime info: std.builtin.Type.Struct, _index: i32) 
 
     inline for (info.fields, 0..) |field, i| {
         if (!is(lua, field.type, index + @as(i32, i)).value) {
-            return IndexCoveredMany(false, @intCast(i + 1));
+            return indexCoveredMany(false, @intCast(i + 1));
         }
     }
-    return IndexCoveredMany(true, info.fields.len);
+    return indexCoveredMany(true, info.fields.len);
 }
 
 fn lenTuple(comptime T: type) comptime_int {
@@ -525,7 +563,7 @@ fn toTuple(lua: *zlua.Lua, comptime T: type, _index: i32) !IndexCovered(T) {
         tuple[i] = result.value;
     }
 
-    return IndexCoveredMany(tuple, covered_index);
+    return indexCoveredMany(tuple, covered_index);
 }
 
 fn checkTuple(lua: *zlua.Lua, comptime T: type, _index: i32) IndexCovered(T) {
@@ -541,92 +579,82 @@ fn checkTuple(lua: *zlua.Lua, comptime T: type, _index: i32) IndexCovered(T) {
         tuple[i] = result.value;
     }
 
-    return IndexCoveredMany(tuple, covered_index);
+    return indexCoveredMany(tuple, covered_index);
 }
 
-pub fn is(lua: *zlua.Lua, comptime T: type, index: i32) IndexCovered(bool) {
+pub fn is(lua: *zlua.Lua, comptime T: type, index: i32, tname: ?[:0]const u8) IndexCovered(bool) {
     if (lua.getTop() < @abs(index)) {
-        return IndexCoveredOne(false);
+        return indexCoveredOne(false);
     }
 
     if (T == LuaTable) {
-        return IndexCoveredOne(lua.isTable(index));
+        return indexCoveredOne(lua.isTable(index));
     }
 
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
-            return IndexCoveredOne(lua.isInteger(index));
+            return indexCoveredOne(lua.isInteger(index));
         },
         .float, .comptime_float => {
-            return IndexCoveredOne(lua.isNumber(index));
+            return indexCoveredOne(lua.isNumber(index));
         },
         .bool => {
-            return IndexCoveredOne(lua.isBoolean(index));
+            return indexCoveredOne(lua.isBoolean(index));
         },
         .pointer => |ptr_info| {
             if (comptime isTypeString(ptr_info)) {
-                return IndexCoveredOne(lua.isString(index));
+                return indexCoveredOne(lua.isString(index));
             }
             if (comptime isTypeArray(ptr_info)) {
                 return isArray(lua, ptr_info.child, index);
             }
             if (lua.isLightUserdata(index)) {
-                return IndexCoveredOne(true);
+                return indexCoveredOne(true);
             }
+            _ = lua.testUserdata(T, index, tname orelse @typeName(T)) catch {
+                return indexCoveredOne(false);
+            };
+            return indexCoveredOne(true);
         },
         .optional => |opt| {
             if (lua.isNil(index)) {
-                return IndexCoveredOne(true);
+                return indexCoveredOne(true);
             }
-            return is(lua, opt.child, index);
+            return is(lua, opt.child, index, tname);
         },
         .@"struct" => |struct_info| {
             if (struct_info.is_tuple) {
                 return isTuple(lua, struct_info, index);
             }
 
-            _ = lua.testUserdata(T, index, @typeName(T)) catch return IndexCoveredOne(false);
-            return IndexCoveredOne(true);
+            _ = lua.testUserdata(T, index, tname orelse @typeName(T)) catch return indexCoveredOne(false);
+            return indexCoveredOne(true);
         },
         else => {},
     }
 
-    return false;
+    return indexCoveredOne(false);
 }
 
-fn PointerIfStruct(comptime T: type) type {
-    if (T == LuaAny or T == LuaTable
-        // or isManyValues(T)
-    ) {
-        return T;
-    }
-
-    if (@typeInfo(T) == .@"struct" and !@typeInfo(T).@"struct".is_tuple) {
-        return *T;
-    }
-
-    return T;
-}
-
-pub fn getUnchecked(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(PointerIfStruct(T)) {
+pub fn getUnchecked(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(T) {
     if (T == LuaAny) {
-        return IndexCoveredOne(LuaAny.get(lua, index));
+        return indexCoveredOne(LuaAny.get(lua, index));
     }
 
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
             const value: T = @intCast(lua.toInteger(index) catch unreachable);
-            return IndexCoveredOne(value);
+            return indexCoveredOne(value);
         },
         .float, .comptime_float => {
-            return IndexCoveredOne(@floatCast(lua.toNumber(index) catch unreachable));
+            return indexCoveredOne(@floatCast(lua.toNumber(index) catch unreachable));
         },
         .bool => {
-            return IndexCoveredOne(lua.toBoolean(index));
+            return indexCoveredOne(lua.toBoolean(index));
         },
         .pointer => |ptr_info| {
             if (comptime isTypeString(ptr_info)) {
-                return IndexCoveredOne(lua.toString(index) catch unreachable);
+                return indexCoveredOne(lua.toString(index) catch unreachable);
             }
             if (comptime isTypeArray(ptr_info)) {
                 return toArray(lua, ptr_info.child, index, true) catch |err| {
@@ -635,20 +663,21 @@ pub fn getUnchecked(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(
                 };
             }
 
-            return IndexCoveredOne(lua.toUserdata(ptr_info.child, index));
+            return indexCoveredOne(lua.toUserdata(ptr_info.child, index));
         },
         .optional => |opt| {
-            if (lua.isNil(index)) {
-                return IndexCoveredOne(null);
+            if (lua.isNil(index) or lua.getTop() < index) {
+                return indexCoveredOne(@as(T, null));
             }
-            return get(lua, opt.child, index);
+            const result = try get(lua, opt.child, index);
+            return indexCoveredMany(@as(T, result.value), result.index_covered);
         },
         .@"struct" => |struct_info| {
             if (struct_info.is_tuple) {
                 return try toTuple(lua, T, index);
             }
 
-            return IndexCoveredOne(lua.toUserdata(T, index));
+            return indexCoveredOne(lua.toUserdata(T, index));
         },
         else => {},
     }
@@ -657,13 +686,13 @@ pub fn getUnchecked(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(
     @compileError("unsupported type: " ++ @typeName(T));
 }
 
-pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(PointerIfStruct(T)) {
+pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(T) {
     if (T == LuaAny) {
-        return IndexCoveredOne(LuaAny.get(lua, index));
+        return indexCoveredOne(LuaAny.get(lua, index));
     }
 
     if (T == LuaTable) {
-        return IndexCoveredOne(try LuaTable.get(lua, index));
+        return indexCoveredOne(try LuaTable.get(lua, index));
     }
 
     if (!is(lua, T, index).value) {
@@ -673,29 +702,29 @@ pub fn get(lua: *zlua.Lua, comptime T: type, index: i32) !IndexCovered(PointerIf
     return getUnchecked(lua, T, index);
 }
 
-pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) IndexCovered(PointerIfStruct(T)) {
+pub fn check(lua: *zlua.Lua, comptime T: type, index: i32, tname: ?[:0]const u8) IndexCovered(T) {
     if (T == LuaAny) {
-        return IndexCoveredOne(LuaAny.get(lua, index));
+        return indexCoveredOne(LuaAny.get(lua, index));
     }
 
     if (T == LuaTable) {
-        return IndexCoveredOne(LuaTable.check(lua, index));
+        return indexCoveredOne(LuaTable.check(lua, index));
     }
 
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
             const value: T = @intCast(lua.checkInteger(index));
-            return IndexCoveredOne(value);
+            return indexCoveredOne(value);
         },
         .float, .comptime_float => {
-            return IndexCoveredOne(@floatCast(lua.checkNumber(index)));
+            return indexCoveredOne(@floatCast(lua.checkNumber(index)));
         },
         .bool => {
-            return IndexCoveredOne(lua.toBoolean(index));
+            return indexCoveredOne(lua.toBoolean(index));
         },
         .pointer => |ptr_info| {
             if (comptime isTypeString(ptr_info)) {
-                return IndexCoveredOne(lua.checkString(index));
+                return indexCoveredOne(lua.checkString(index));
             }
 
             if (comptime isTypeArray(ptr_info)) {
@@ -712,38 +741,36 @@ pub fn check(lua: *zlua.Lua, comptime T: type, index: i32) IndexCovered(PointerI
             }
 
             if (lua.isLightUserdata(index)) {
-                return IndexCoveredOne(lua.toUserdata(ptr_info.child, index) catch unreachable);
+                return indexCoveredOne(lua.toUserdata(ptr_info.child, index) catch unreachable);
             }
 
-            return IndexCoveredOne(lua.checkUserdata(ptr_info.child, index, @typeName(T)));
+            return indexCoveredOne(lua.checkUserdata(ptr_info.child, index, tname orelse @typeName(T)));
         },
         .optional => |opt| {
-            if (lua.isNil(index)) {
-                return IndexCoveredOne(null);
+            if (lua.isNil(index) or lua.getTop() < index) {
+                return indexCoveredOne(@as(T, null));
             }
-            return check(lua, opt.child, index);
+            const result = check(lua, opt.child, index, tname);
+            return indexCoveredMany(@as(T, result.value), result.index_covered);
         },
         .@"struct" => |struct_info| {
             if (struct_info.is_tuple) {
                 return checkTuple(lua, T, index);
             }
 
-            return IndexCoveredOne(lua.checkUserdata(T, index, @typeName(*T)));
+            return indexCoveredOne(lua.checkUserdata(T, index, tname orelse @typeName(T)).*);
         },
-        else => {},
+        else => {
+            @compileError("unsupported type: " ++ @typeName(T));
+        },
     }
 }
 
 pub fn push(lua: *zlua.Lua, value: anytype) !void {
     const T = @TypeOf(value);
 
-    if (T == LuaAny) {
-        value.push(lua);
-        return;
-    }
-
-    if (T == LuaTable) {
-        value.push(lua);
+    if (T == LuaAny or T == LuaTable) {
+        value.push();
         return;
     }
 
@@ -780,6 +807,7 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 const userdata = lua.newUserdata(T, 0);
                 userdata.* = value;
                 try getOrCreateMetatable(lua, T, ptr_info.child);
+
                 return;
             }
 
@@ -787,7 +815,7 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
         },
         .optional => {
             if (value) |v| {
-                push(lua, v);
+                try push(lua, v);
                 return;
             } else {
                 lua.pushNil();
@@ -866,6 +894,34 @@ pub fn typeName(comptime T: type) [:0]const u8 {
     return signature;
 }
 
+fn parseArgs(lua: *zlua.Lua, comptime func_type: type) std.meta.ArgsTuple(func_type) {
+    var args: std.meta.ArgsTuple(func_type) = undefined;
+
+    var lua_arg_index: i32 = 0;
+    inline for (@typeInfo(func_type).@"fn".params, 0..) |param, i| {
+        if (param.type == ThisLuaState) {
+            args[i] = ThisLuaState{ .lua = lua };
+            continue;
+        }
+        lua_arg_index += 1;
+
+        const param_type = param.type orelse @compileError("parameter type required");
+        dumpStack(lua);
+        if (!is(lua, param_type, lua_arg_index, @typeName(param_type)).value and @typeInfo(param_type) == .pointer) {
+            std.debug.print("{s} {s}\n", .{ @typeName(param_type), @typeName(@typeInfo(param_type).pointer.child) });
+            const result = check(lua, param_type, lua_arg_index, @typeName(@typeInfo(param_type).pointer.child));
+            lua_arg_index += result.index_covered - 1;
+            args[i] = result.value;
+        } else {
+            const result = check(lua, param_type, lua_arg_index, @typeName(param_type));
+            lua_arg_index += result.index_covered - 1;
+            args[i] = result.value;
+        }
+    }
+
+    return args;
+}
+
 pub fn wrap(comptime func: anytype) zlua.CFn {
     const func_type = @TypeOf(func);
     if (@typeInfo(func_type) != .@"fn") {
@@ -883,20 +939,7 @@ pub fn wrap(comptime func: anytype) zlua.CFn {
 
     return zlua.wrap(struct {
         pub fn call(lua: *zlua.Lua) i32 {
-            var args: std.meta.ArgsTuple(func_type) = undefined;
-            var lua_arg_index: i32 = 0;
-            inline for (params, 0..) |param, i| {
-                if (param.type == ThisLuaState) {
-                    args[i] = ThisLuaState{ .lua = lua };
-                    continue;
-                }
-                lua_arg_index += 1;
-
-                const param_type = param.type orelse @compileError("parameter type required");
-                const result = check(lua, param_type, lua_arg_index);
-                lua_arg_index += result.index_covered - 1;
-                args[i] = result.value;
-            }
+            const args = parseArgs(lua, func_type);
             defer {
                 inline for (params, 0..) |param, i| {
                     const param_info = @typeInfo(param.type.?);

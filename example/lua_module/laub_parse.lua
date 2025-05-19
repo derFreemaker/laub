@@ -18,4 +18,5 @@
 --     end
 -- end)
 
-laub_parser:option({"asd"}, "foo")
+print(laub_parser:command("test"))
+print(laub_parser:command("test", "test description"))

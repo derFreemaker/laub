@@ -22,20 +22,20 @@
 local _command = {}
 
 ---@param options laub.parser.command.option_with_short
-function _command.option(options)
+function _command:option(options)
 end
 
 ---@param options laub.parser.command.option_with_short
-function _command.select(options)
+function _command:select(options)
 end
 
 --- A flag is a option which can only be false or true
 ---@param option laub.parser.command.option_with_short
-function _command.flag(option)
+function _command:flag(option)
 end
 
 ---@param option laub.parser.command.option.positional
-function _command.positional(option)
+function _command:positional(option)
 end
 
 ---@class laub.parser.parsed_options
@@ -47,11 +47,11 @@ local _parser = {}
 ---@param name string
 ---@param description string?
 ---@return laub.parser.command
-function _parser.command(name, description)
+function _parser:command(name, description)
 end
 
 ---@param func fun(options: laub.parser.parsed_options) : nil
-function _parser.parse(func)
+function _parser:parse(func)
 end
 
 laub_parser = _parser

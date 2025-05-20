@@ -743,7 +743,7 @@ pub fn check(lua: *zlua.Lua, comptime T: type, index: i32, tname: ?[:0]const u8)
             if (lua.isLightUserdata(index)) {
                 return indexCoveredOne(lua.toUserdata(ptr_info.child, index) catch unreachable);
             }
-
+            
             return indexCoveredOne(lua.checkUserdata(ptr_info.child, index, tname orelse @typeName(T)));
         },
         .optional => |opt| {
@@ -807,7 +807,7 @@ pub fn push(lua: *zlua.Lua, value: anytype) !void {
                 const userdata = lua.newUserdata(T, 0);
                 userdata.* = value;
                 try getOrCreateMetatable(lua, T, ptr_info.child);
-
+                
                 return;
             }
 
@@ -906,9 +906,7 @@ fn parseArgs(lua: *zlua.Lua, comptime func_type: type) std.meta.ArgsTuple(func_t
         lua_arg_index += 1;
 
         const param_type = param.type orelse @compileError("parameter type required");
-        dumpStack(lua);
         if (!is(lua, param_type, lua_arg_index, @typeName(param_type)).value and @typeInfo(param_type) == .pointer) {
-            std.debug.print("{s} {s}\n", .{ @typeName(param_type), @typeName(@typeInfo(param_type).pointer.child) });
             const result = check(lua, param_type, lua_arg_index, @typeName(@typeInfo(param_type).pointer.child));
             lua_arg_index += result.index_covered - 1;
             args[i] = result.value;
@@ -951,12 +949,12 @@ pub fn wrap(comptime func: anytype) zlua.CFn {
             lua.pop(lua.getTop()); // clear function stack
 
             const result = if (has_error_union)
-                @call(.always_inline, func, args) catch |err| {
+                @call(.auto, func, args) catch |err| {
                     lua.raiseErrorStr(@errorName(err), .{});
                     unreachable; // Needed because raiseErrorStr never returns
                 }
             else
-                @call(.always_inline, func, args);
+                @call(.auto, func, args);
 
             if (@TypeOf(result) == void) {
                 return 0;

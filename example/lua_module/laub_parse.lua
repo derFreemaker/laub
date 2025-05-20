@@ -18,5 +18,5 @@
 --     end
 -- end)
 
-print(laub_parser:command("test"))
-print(laub_parser:command("test", "test description"))
+local test = laub_parser:command("test")
+test:option({ name = "opt" })
